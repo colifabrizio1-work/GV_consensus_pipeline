@@ -1,0 +1,188 @@
+{
+  "pipeline": {
+    "name": "GV consensus frames",
+    "status": "active_bootstrap",
+    "owner": "Demand Management GV",
+    "last_updated": "2026-07-01"
+  },
+  "steps": [
+    {
+      "name": "update_sales_gv",
+      "script": "{gv.script}\\update_sales_gv.py",
+      "inputs": [
+        "{scarichi.sales_historical.path}",
+        "{scarichi.sales_update.path}",
+        "{manual_input.brand_defill.path}"
+      ],
+      "outputs": [
+        "{parquet.sales_annual_pattern}",
+        "{gv.log}\\update_sales_gv_{timestamp}.log"
+      ],
+      "status": "active_incremental_latest_5_weeks",
+      "last_run": {
+        "date": "2026-07-01",
+        "source": "update",
+        "latest_weeks_replaced": [
+          "202622",
+          "202623",
+          "202624",
+          "202625",
+          "202626"
+        ],
+        "log": "{gv.log}\\update_sales_gv_20260701_174808.log",
+        "outputs": [
+          "{gv.parquet_sales}\\GV_Sales_2026.parquet"
+        ]
+      },
+      "default_command": "python update_sales_gv.py",
+      "notes": [
+        "Default run reads GV_Sales_update_Eliot.csv.",
+        "It detects the latest 5 Fiscal Week values in the update source.",
+        "For each touched annual parquet, it removes those Fiscal Week values in toto for Sales_hist/Sales_minimo and appends the new rows.",
+        "This handles UPC/datest appearances and disappearances because the update source fully owns the replaced weeks.",
+        "Use --source historical only for a full rebuild from GV_Sales_update_Eliot storico.csv.",
+        "Sends S.A.M. status email to fabrizio.coli@luxottica.com by default; use --no-mail to disable."
+      ],
+      "bat": "{gv.bat}\\Update_Sales_GV.bat",
+      "last_custom_historical_load": {
+        "date": "2026-07-01",
+        "source": "{scarichi.sales_historical_2024_2023.path}",
+        "log": "{gv.log}\\update_sales_gv_20260701_191044.log",
+        "outputs": [
+          "{gv.parquet_sales}\\GV_Sales_2023.parquet",
+          "{gv.parquet_sales}\\GV_Sales_2024.parquet"
+        ],
+        "separator": ";",
+        "rows_source": 1812486,
+        "rows_intermediate": 3437565,
+        "invalid_upc_rows_dropped": 10,
+        "metrics": {
+          "2023": {
+            "rows": 1339276,
+            "qty": 7911628,
+            "datests": 9,
+            "week_range": "202301-202352"
+          },
+          "2024": {
+            "rows": 2098289,
+            "qty": 13786643,
+            "datests": 12,
+            "week_range": "202401-202452"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_forecast_gv",
+      "script": "{gv.script}\\update_forecast_gv.py",
+      "inputs": [
+        "{scarichi.forecast.path}",
+        "{manual_input.brand_defill.path}"
+      ],
+      "outputs": [
+        "{parquet.forecast}",
+        "{gv.log}\\update_forecast_gv_{timestamp}.log"
+      ],
+      "status": "active_latest_only_overwrite",
+      "last_run": {
+        "date": "2026-07-01",
+        "source": "latest_approved",
+        "snapshot_timestamp": "2026-07-01 17:48:36",
+        "log": "{gv.log}\\update_forecast_gv_20260701_174836.log",
+        "outputs": [
+          "{gv.parquet_forecast}\\GV_Forecast.parquet"
+        ]
+      },
+      "default_command": "python update_forecast_gv.py",
+      "notes": [
+        "Default run reads GV_Forecast_Eliot.csv.",
+        "Only Forecast Approved (with COV) is kept.",
+        "GV_Forecast.parquet is a latest-only photo: each run replaces the previous parquet and stores the current snapshot_timestamp.",
+        "Sends S.A.M. status email to fabrizio.coli@luxottica.com by default; use --no-mail to disable."
+      ],
+      "bat": "{gv.bat}\\Update_Forecast_GV.bat"
+    },
+    {
+      "name": "generate_consensus_frames_gv",
+      "script": "{gv.script}\\generate_consensus_frames_gv.py",
+      "inputs": [
+        "{parquet.sales_annual_pattern}",
+        "{parquet.forecast}",
+        "{manual_input.brand_defill.path}",
+        "{manual_input.consensus_template.path}"
+      ],
+      "outputs": [
+        "{outputs.consensus_pattern}",
+        "{gv.log}\\generate_consensus_frames_gv_{timestamp}.log"
+      ],
+      "status": "active_v1_generated_202607",
+      "default_command": "python generate_consensus_frames_gv.py",
+      "last_run": {
+        "date": "2026-07-01",
+        "yyyymm": "202607",
+        "log": "{gv.log}\\generate_consensus_frames_gv_20260701_191245.log",
+        "output": "{gv.consensus}\\Consensus_Frames_GV_202607.xlsx",
+        "sheets": 12,
+        "sales_missing_upc_rows": 0,
+        "sales_missing_unique_upc": 0,
+        "forecast_missing_upc_rows": 0,
+        "forecast_missing_unique_upc": 0,
+        "sales_rows_after_filters": 6192931,
+        "forecast_rows_after_filters": 737826
+      },
+      "notes": [
+        "Outputs are saved only in the GV 02_Consensus folder.",
+        "The template sheet is repeated once per GV datest; no split sheets or auxiliary tabs are created.",
+        "Defill DATEST+BRAND pairs are exclusions, applied after enriching UPC with Brand from official Anagrafica_Base.parquet.",
+        "Forecast weeks are mapped to fiscal months using official Fiscal Calendar.xlsx.",
+        "Columns B:N are rolling target YYYYMM -6 to +6; placeholders LLLY/LLY/LY/CY are replaced with actual years.",
+        "All UPCs matched Anagrafica_Base.parquet in the 202607 run.",
+        "Accessories are removed with Product Type = Accessories from Anagrafica_Base.parquet.",
+        "Wearables are removed with official brand_wearables.xlsx."
+      ]
+    }
+  ],
+  "borrowed_from_official_pipeline": [
+    {
+      "name": "Fiscal Calendar",
+      "path": "{official_borrowed.fiscal_calendar}",
+      "status": "declared_not_used_yet",
+      "reason": "Future week-to-month mapping if GV cannot rely only on source Fiscal Month."
+    },
+    {
+      "name": "Anagrafica Base",
+      "path": "{official_borrowed.anagrafica_base_parquet}",
+      "status": "declared_not_used_yet",
+      "reason": "Future UPC/brand enrichment or validation."
+    }
+  ],
+  "datest_scope": {
+    "source": "scarichi_sales_forecast",
+    "allowed_gv_datests": [
+      "026000",
+      "026150",
+      "026300",
+      "028150",
+      "028200",
+      "028300",
+      "032100",
+      "032150",
+      "032300",
+      "033100",
+      "033150",
+      "033300"
+    ],
+    "note": "Defill is not the GV datest whitelist; it is manual brand scope/enrichment. GV datests come from sales and forecast scarichi."
+  },
+  "mail": {
+    "provider": "S.A.M.",
+    "helper": "{gv.script}\\gv_samu.py",
+    "official_samu_source": "\\\\luxnt\\Retail\\AAA_Retail\\zzzz_Coli\\Script\\03 - py\\00 - utilities\\samu.py",
+    "recipients": [
+      "fabrizio.coli@luxottica.com"
+    ],
+    "default_active": true,
+    "disable_arg": "--no-mail",
+    "behavior": "Success mail at completed run; error mail with traceback/log when an exception is caught."
+  }
+}

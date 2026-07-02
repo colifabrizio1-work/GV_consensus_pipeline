@@ -1,0 +1,17 @@
+﻿# Runtime/generated data
+01_input/01_Scarichi/
+01_input/02_Parquet/
+02_Consensus/
+00_cose_pitonose/04_log/
+
+# Python/cache/local env
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Local/generated backups and shortcuts
+*.bak*
+*.tmp
+*.lnk

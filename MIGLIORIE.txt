@@ -1,0 +1,3 @@
+- RIGA DI BIAS X FORECAST TOTALE E DA MINIMO. rolling: prende i dati di forecast dall'ultima consensus per le sales sia totale che da minimo.
+
+- COMPLETAMENTO: ricreare il tab plain con il completamento di LM

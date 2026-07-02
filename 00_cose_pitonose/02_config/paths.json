@@ -1,0 +1,27 @@
+{
+  "roots": {
+    "gv": "\\\\luxnt\\Retail\\AAA_Retail\\Demand Management GV\\10. Automatizzazione file consensus",
+    "official_script": "\\\\luxnt\\Retail\\AAA_Retail\\zzzz_Coli\\Script",
+    "official_data": "\\\\luxnt\\Retail\\AAA_Retail\\North America Demand&Distribution\\00_Data"
+  },
+  "gv": {
+    "technical": "{roots.gv}\\00_cose_pitonose",
+    "doc": "{gv.technical}\\01_doc",
+    "config": "{gv.technical}\\02_config",
+    "script": "{gv.technical}\\03_script",
+    "log": "{gv.technical}\\04_log",
+    "input": "{roots.gv}\\01_input",
+    "manual_input": "{gv.input}\\00_Manual_input",
+    "scarichi": "{gv.input}\\01_Scarichi",
+    "parquet": "{gv.input}\\02_Parquet",
+    "parquet_sales": "{gv.parquet}\\01_Sales",
+    "parquet_forecast": "{gv.parquet}\\02_Forecast",
+    "consensus": "{roots.gv}\\02_Consensus",
+    "bat": "{gv.technical}\\05_bat"
+  },
+  "official_borrowed": {
+    "fiscal_calendar": "{roots.official_data}\\01_Manual_Input\\Fiscal Calendar.xlsx",
+    "anagrafica_base_parquet": "{roots.official_data}\\02_Clean_Data\\03_Anagrafica\\Anagrafica_Base.parquet",
+    "brand_wearables": "{roots.official_data}\\01_Manual_Input\\brand_wearables.xlsx"
+  }
+}

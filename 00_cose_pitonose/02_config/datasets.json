@@ -1,0 +1,103 @@
+{
+  "business_rules": {
+    "datest_scope_source": "scarichi_sales_forecast",
+    "csv_separator": ",",
+    "encoding": "utf-8-sig",
+    "fallback_encoding": "latin1",
+    "allowed_gv_datests": [
+      "026000",
+      "026150",
+      "026300",
+      "028150",
+      "028200",
+      "028300",
+      "032100",
+      "032150",
+      "032300",
+      "033100",
+      "033150",
+      "033300"
+    ],
+    "sales_update_latest_weeks": 5,
+    "sales_update_replace_scope": "Replace the selected Fiscal Week values in toto in the annual parquet before appending the new update rows.",
+    "forecast_storage_mode": "latest_only_overwrite",
+    "consensus_month_window": "13 fiscal months from target YYYYMM -6 to +6, written in columns B:N.",
+    "defill_usage": "Exclude rows where Client Datest + UPC Brand match DATEST + BRAND in 01_Brands Defill.xlsx. Defill is not the datest whitelist.",
+    "consensus_target_default": "Current fiscal month from official Fiscal Calendar Monthly sheet.",
+    "consensus_product_scope": "Exclude Product Type = Accessories and brands listed in official brand_wearables.xlsx. Missing UPC anagrafica matches are reported and kept.",
+    "sales_invalid_upc_rule": "Rows with blank/nan/none/nat UPC are dropped before writing parquet."
+  },
+  "manual_input": {
+    "brand_defill": {
+      "path": "{gv.manual_input}\\01_Brands Defill.xlsx",
+      "sheet": "DEFILL",
+      "datest_column": "DATEST",
+      "brand_column": "BRAND"
+    },
+    "consensus_template": {
+      "path": "{gv.manual_input}\\02_Consensus_frames_template.xlsx",
+      "sheet": "Consensus Frames"
+    }
+  },
+  "scarichi": {
+    "sales_historical": {
+      "path": "{gv.scarichi}\\GV_Sales_update_Eliot storico.csv",
+      "columns": [
+        "Client Datest",
+        "UPC",
+        "Fiscal Year",
+        "Fiscal Month",
+        "Fiscal Week",
+        "Hist Weekly Sales",
+        "Hist - Weekly Sales Act MS>0 (Total)"
+      ]
+    },
+    "sales_update": {
+      "path": "{gv.scarichi}\\GV_Sales_update_Eliot.csv",
+      "columns": [
+        "Client Datest",
+        "UPC",
+        "Fiscal Year",
+        "Fiscal Month",
+        "Fiscal Week",
+        "Hist Weekly Sales",
+        "Hist - Weekly Sales Act MS>0 (Total)"
+      ]
+    },
+    "forecast": {
+      "path": "{gv.scarichi}\\GV_Forecast_Eliot.csv",
+      "columns": [
+        "Client Datest",
+        "UPC",
+        "Fiscal Week",
+        "Forecast (no COV)",
+        "Forecast (with COV)",
+        "Forecast Approved (with COV)"
+      ]
+    },
+    "sales_historical_2024_2023": {
+      "path": "{gv.scarichi}\\storici sales\\GV_Sales_update_Eliot storico 2024-2023.csv",
+      "separator": ";",
+      "years": [
+        2023,
+        2024
+      ],
+      "columns": [
+        "Client Datest",
+        "UPC",
+        "Fiscal Year",
+        "Fiscal Month",
+        "Fiscal Week",
+        "Hist Weekly Sales",
+        "Hist - Weekly Sales Act MS>0 (Total)"
+      ]
+    }
+  },
+  "parquet": {
+    "sales_annual_pattern": "{gv.parquet_sales}\\GV_Sales_{year}.parquet",
+    "forecast": "{gv.parquet_forecast}\\GV_Forecast.parquet"
+  },
+  "outputs": {
+    "consensus_pattern": "{gv.consensus}\\Consensus_Frames_GV_{yyyymm}.xlsx"
+  }
+}
