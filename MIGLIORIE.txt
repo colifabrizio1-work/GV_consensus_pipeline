@@ -5,5 +5,5 @@ X- riga 21 calcolo su riga 22
 X- aggiunta riga nuova 23 Weekly sales basata su riga 22 = riga 22/n settimane mese
 X- riportare % da minimo last approved insieme a riga 38 portata su
 X - riga 36 = riga last approved minimo 
- - formuletta sales da minimo che fa 1+% invece che %
- - tool robusto ad ingresso nuovo anno in perimetro temporale
+X - formuletta sales da minimo che fa 1+% invece che %
+X - tool robusto ad ingresso nuovo anno in perimetro temporale
