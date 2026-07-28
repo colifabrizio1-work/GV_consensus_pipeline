@@ -1,6 +1,6 @@
 # Pipeline GV - Overview
 
-Ultimo aggiornamento: 2026-07-01.
+Ultimo aggiornamento: 2026-07-07.
 
 Questa pipeline gestisce il flusso GV per automatizzare i file consensus frames.
 E' separata dalla pipeline Retail ufficiale: ha cartelle, config, script, log e
@@ -31,13 +31,15 @@ serve, ma ogni dipendenza esterna deve essere dichiarata qui e nei config GV.
 |   |   |-- datasets.json
 |   |   `-- pipeline.json
 |   |-- 03_script
+|   |   |-- generate_consensus_frames_gv.py
 |   |   |-- gv_config.py
 |   |   |-- gv_samu.py
 |   |   |-- update_sales_gv.py
-|   |   |-- update_forecast_gv.py
-|   |   `-- generate_consensus_frames_gv.py
+|   |   `-- update_forecast_gv.py
 |   |-- 04_log
 |   `-- 05_bat
+|       |-- Run_GV_Menu.bat
+|       |-- Run_GV_Pipeline.bat
 |       |-- Update_Forecast_GV.bat
 |       `-- Update_Sales_GV.bat
 |-- 01_input
@@ -283,9 +285,14 @@ I `.bat` propagano l'exit code dello script Python. I log applicativi restano ge
 
 ### BAT Launcher Unico
 
-File:
+File legacy:
 
 - `00_cose_pitonose\05_bat\Run_GV_Pipeline.bat`
+
+File menu principale:
+
+- `00_cose_pitonose\05_bat\Run_GV_Menu.bat`
+- collegamento root `Crea consensus.lnk` punta a `Run_GV_Menu.bat`
 
 Menu disponibile:
 
@@ -410,53 +417,39 @@ Il consensus `202607` e' stato rigenerato dopo il caricamento storico:
 
 - Titolo foglio datest: Consensus Frames GV - <datest> (wearable and defill excluded).
 - Righe 2 e 3 nascoste in ogni foglio consensus.
-- Righe 15 e 16: i testi `LY`, `LLY`, `CY` vengono sostituiti con gli anni reali, esempio `Sales 2025 vs sales 2024` e `Sales 2026 vs sales 2025` per il consensus 202607.
-- Formula riga 16 sul mese corrente: la cella del mese corrente copia la formula della colonna precedente. Esempio consensus 202607: H16 usa la stessa formula di G16.
+- I placeholder `LLLY`, `LLY`, `LY`, `CY` vengono sostituiti con gli anni reali.
 - Riga bucket anni: i mesi nello stesso anno del target sono `CY`, il mese target e' `CM`, i mesi in anni successivi diventano `CY+1`, `CY+2`, ecc.
-- Separatore anno fiscale: quando dentro B:N cambia l'anno fiscale, lo script applica un bordo verticale sinistro `double` dalla riga 4 alla riga 40 sulla prima colonna del nuovo anno. Esempio 202607: separatore tra M=202612 e N=202701; 202608: separatore tra L=202612 e M=202701.
-- Colori header mesi riga 4: seguono sempre il trimestre fiscale per numero mese, quindi gen-feb-mar stesso colore, apr-mag-giu stesso colore, lug-ago-set stesso colore, ott-nov-dic stesso colore, indipendentemente dalla posizione rolling della colonna.
-
+- Colori header mesi riga 4: seguono sempre il trimestre fiscale per numero mese, quindi gen-feb-mar, apr-mag-giu, lug-ago-set e ott-nov-dic hanno quattro formattazioni distinte.
+- Separatore anno fiscale: bordo verticale sinistro `double` sulla prima colonna del nuovo anno, continuo dalla riga 4 alla riga 45.
+- Separatore current month: bordo giallo `mediumDashDot` sulla colonna del mese corrente, continuo dalla riga 4 alla riga 45 e prevalente sugli altri separatori.
+- Separatori quarter: bordo nero dopo Mar/Giu/Set/Dic, non applicato sulle righe vuote `9, 14, 17, 20, 26, 31, 36, 39, 44`.
 
 ### Regole Forecast e Minimo Consensus
 
 Per il consensus rolling 202607, con G=mese precedente, H=mese corrente, I:N=futuro:
 
 - righe 21-23: B:F vuote;
-- G21 = G16, G22 = G8, G23 = G22-G19;
-- H21 = `IFERROR(SUM(F8:H8)/SUM(F7:H7)-1,"")`;
-- I21:N21 = H21;
-- H22:N22 = riga 7 * (1 + riga 21);
-- H28 = proiezione Sales_minimo del mese corrente con la stessa logica usata per H8 sulle sales totali;
-- I28:N28 vuote;
-- righe 35-38: B:F vuote;
-- G35/H35 = riga 33, G36/H36 = riga 28, G37/H37 = forecast del mese corrispondente, G38/H38 = riga 36 - riga 37;
-- I35:M35 = valore della riga 35 dell'ultima consensus disponibile, agganciato per `YYYYMM` rolling; G35, H35 e N35 mantengono le proprie regole;
-- I36:N36 = riga 22 * (1 + riga 35);
-- I37:N37 = forecast del mese corrispondente;
-- I38:N38 = `IFERROR(riga36-riga37,"")`.
+- G21/H21 = riga 16;
+- I21:N21 = `IFERROR(riga22/riga7-1,"")`;
+- G22/H22 = riga 8;
+- I22:M22 = riga 19, N22 vuota;
+- G23:N23 = riga 22 diviso numero settimane fiscali del mese della colonna;
+- G24/H24 = `IFERROR(riga19/riga8-1,"")`, I:N vuote;
+- riga 25 = delta vs last approval, con B:G vuote, H:N = `IFERROR(riga22-riga19,"")`;
+- riga 37 = `IFERROR(riga38/riga19,"")`;
+- riga 38 = forecast/last approval sales da minimo del mese corrispondente;
+- G40/H40 = riga 35, I40:M40 = riga 37, N40 vuota;
+- G41/H41 = riga 30, I41:N41 = `IFERROR(riga22*(1+riga40),"")`;
+- riga 42 = volume error sales da minimo, calcolata su G/H come `IFERROR(riga38/riga30-1,"")`;
+- riga 43 = delta vs last approval sales da minimo, `IFERROR(riga41-riga38,"")`;
+- riga 45 = commenti, riportati dalla consensus precedente agganciando i valori allo stesso `YYYYMM`.
 
 ### Regola Sales CY Corrente e Futuro
 
 Nel consensus, per i mesi futuri rispetto al mese corrente consensus, le righe Sales CY e Weekly Sales CY restano vuote. Non vengono scritti zero perche' nel futuro non possono esserci vendite actual.
 
-Le righe 21-23 restano vuote per i mesi precedenti al mese target. Esempio consensus 202607: colonne B:G vuote sulle righe 21, 22 e 23.
+Per il mese corrente, Sales CY viene proiettato a fine mese con questa logica:
 
-Riga 21 Forecast Sales Tot %:
-
-- colonna del mese target: `=IFERROR(SUM(F8:H8)/SUM(F7:H7)-1,"")` per consensus 202607;
-- colonne successive al mese target: copiano la percentuale del mese target, esempio `I21:N21 = H21`.
-
-Riga 22 Forecast Sales Tot pcs:
-
-- colonne dal mese target in avanti: `riga 7 * (1 + riga 21)`, esempio `H22 = H7*(1+H21)` e `I22 = I7*(1+I21)`.
-
-Per il mese corrente, Sales CY non e' piu' il solo actual MTD: viene proiettato a fine mese con questa logica:
-
-- settimane chiuse CY = settimane del mese corrente che hanno sales nel parquet;
-- rapporto = somma settimane chiuse CY / somma delle stesse posizioni settimana LY;
-- proiezione settimane aperte = rapporto * somma settimane aperte LY;
-- Sales CY mese corrente = somma settimane chiuse CY + proiezione settimane aperte;
+- se non ci sono settimane chiuse CY, il fallback e' il valore LY del mese intero;
+- se ci sono settimane chiuse CY, Sales CY proiettato = vendite settimane chiuse / numero settimane chiuse * numero settimane fiscali del mese;
 - Weekly Sales CY mese corrente = Sales CY proiettato / numero settimane fiscali del mese corrente.
-
-Se non ci sono ancora settimane chiuse CY nel mese corrente, la proiezione resta `0`.
-

@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.formula.translate import Translator
 from openpyxl.styles import PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -20,8 +21,8 @@ MONTH_COLUMNS = list(range(2, 15))  # B:N, 13 rolling months: -6 .. +6
 ROLLING_OFFSETS = list(range(-6, 7))
 SALES_ROWS = {"LLLY": 5, "LLY": 6, "LY": 7, "CY": 8}
 WEEKLY_ROWS = {"LLLY": 10, "LLY": 11, "LY": 12, "CY": 13}
-MINIMO_ROWS = {"LLLY": 25, "LLY": 26, "LY": 27, "CY": 28}
-MINIMO_PCT_ROWS = {"LLLY": 30, "LLY": 31, "LY": 32, "CY": 33}
+MINIMO_ROWS = {"LLLY": 27, "LLY": 28, "LY": 29, "CY": 30}
+MINIMO_PCT_ROWS = {"LLLY": 32, "LLY": 33, "LY": 34, "CY": 35}
 YEAR_KEYS = ["LLLY", "LLY", "LY", "CY"]
 SELF_EMAIL = "fabrizio.coli@luxottica.com"
 QUARTER_MONTH_FILLS = {
@@ -296,12 +297,41 @@ def load_previous_values(prev_path: Path | None, datest: str) -> dict[int, dict[
             ym_int = int(ym)
         except Exception:
             continue
+        def _num(value: Any) -> float | None:
+            try:
+                if value in [None, ""]:
+                    return None
+                return float(value)
+            except Exception:
+                return None
+
+        is_new_layout = "Weekly" in str(ws.cell(23, 1).value or "")
+        sales_volume_row = 24 if is_new_layout else 23
+        min_volume_row = 42 if is_new_layout else 39
+        min_forecast_value_row = 38
+        min_cy_row = 30 if is_new_layout else 29
+        comment_row = 45 if is_new_layout else 42
+
+        row24_value = ws.cell(sales_volume_row, col).value
+        row19_value = _num(ws.cell(19, col).value)
+        row8_value = _num(ws.cell(8, col).value)
+        if row24_value in [None, ""] and row19_value is not None and row8_value not in [None, 0]:
+            row24_value = row19_value / row8_value - 1
+
+        row42_value = ws.cell(min_volume_row, col).value
+        row38_value = _num(ws.cell(min_forecast_value_row, col).value)
+        row30_value = _num(ws.cell(min_cy_row, col).value)
+        if row42_value in [None, ""] and row38_value is not None and row30_value not in [None, 0]:
+            row42_value = row38_value / row30_value - 1
+
         out[ym_int] = {
             21: ws.cell(21, col).value,
             22: ws.cell(22, col).value,
-            35: ws.cell(35, col).value,
-            36: ws.cell(36, col).value,
-            40: ws.cell(40, col).value,
+            24: row24_value,
+            40: ws.cell(40, col).value if is_new_layout else ws.cell(36, col).value,
+            41: ws.cell(41, col).value if is_new_layout else ws.cell(37, col).value,
+            42: row42_value,
+            45: ws.cell(comment_row, col).value,
         }
     wb.close()
     return out
@@ -337,7 +367,7 @@ def set_sheet_headers(ws, datest: str, target_yyyymm: int, months: list[int], mo
 
 
 def clear_month_area(ws) -> None:
-    for row in range(5, 41):
+    for row in range(5, 46):
         for col in MONTH_COLUMNS:
             ws.cell(row, col).value = None
 
@@ -347,7 +377,10 @@ def apply_special_vertical_separators(ws, months: list[int], target_yyyymm: int)
     quarter_side = Side(style="medium", color="000000")
     year_side = Side(style="double", color="000000")
     current_side = Side(style="mediumDashDot", color="EDB913")
+    separator_styles = {"medium", "double", "mediumDashDot"}
+    quarter_blank_rows = {9, 14, 17, 20, 26, 31, 36, 39, 44}
 
+    # Quarter separator = right border after Mar/Jun/Sep/Dec.
     quarter_cols = {MONTH_COLUMNS[idx] for idx, ym in enumerate(months) if ym % 100 in (3, 6, 9, 12)}
     year_cols = {
         MONTH_COLUMNS[idx]
@@ -356,25 +389,28 @@ def apply_special_vertical_separators(ws, months: list[int], target_yyyymm: int)
     }
     current_col = MONTH_COLUMNS[months.index(target_yyyymm)] if target_yyyymm in months else None
 
-    for row in range(4, 41):
+    # Clean stale thick separators from the template/previous layout before applying the current ones.
+    for row in range(4, 46):
         for col in MONTH_COLUMNS:
             border = copy(ws.cell(row, col).border)
-            if border.left.style in {"double", "mediumDashDot"}:
+            if col != MONTH_COLUMNS[0] and border.left.style in separator_styles:
                 border.left = thin_side
-            if border.right.style in {"double", "mediumDashDot"}:
+            if border.right.style in separator_styles:
                 border.right = thin_side
             ws.cell(row, col).border = border
 
     # Priorita visiva: quarter nero, poi anno doppio, poi current month giallo.
     for col in quarter_cols:
-        for row in range(4, 41):
+        for row in range(4, 46):
+            if row in quarter_blank_rows:
+                continue
             border = copy(ws.cell(row, col).border)
             border.right = quarter_side
             ws.cell(row, col).border = border
 
     for col in year_cols:
         prev_col = col - 1
-        for row in range(4, 41):
+        for row in range(4, 46):
             if prev_col in MONTH_COLUMNS:
                 border_prev = copy(ws.cell(row, prev_col).border)
                 border_prev.right = Side(style=None)
@@ -384,7 +420,7 @@ def apply_special_vertical_separators(ws, months: list[int], target_yyyymm: int)
             ws.cell(row, col).border = border
 
     if current_col is not None:
-        for row in range(4, 41):
+        for row in range(4, 46):
             border = copy(ws.cell(row, current_col).border)
             border.left = current_side
             border.right = current_side
@@ -433,39 +469,25 @@ def current_month_projection(
     ly_year = ly_yyyymm // 100
     ly_month = ly_yyyymm % 100
     cy_weeks = list(month_info.get(target_yyyymm, {}).get("weeks_list") or [])
-    ly_weeks = list(month_info.get(ly_yyyymm, {}).get("weeks_list") or [])
-    if not cy_weeks or not ly_weeks:
-        total = lookup_sales(lookups, datest, data_type, cy_year, cy_month)
-        weeks = month_info.get(target_yyyymm, {}).get("weeks") or 0
-        return total, total / weeks if weeks else 0.0
+    weeks = month_info.get(target_yyyymm, {}).get("weeks") or len(cy_weeks)
+    ly_total = lookup_sales(lookups, datest, data_type, ly_year, ly_month)
 
-    closed_positions = [
-        idx
-        for idx, week in enumerate(cy_weeks)
+    if not cy_weeks or not weeks:
+        return ly_total, ly_total / weeks if weeks else 0.0
+
+    closed_weeks = [
+        week
+        for week in cy_weeks
         if sales_week_qty(lookups, datest, data_type, cy_year, cy_month, week) != 0
     ]
-    if not closed_positions:
-        weeks = month_info.get(target_yyyymm, {}).get("weeks") or len(cy_weeks)
-        return 0.0, 0.0
+    if not closed_weeks:
+        return ly_total, ly_total / weeks if weeks else 0.0
 
     closed_cy = sum(
-        sales_week_qty(lookups, datest, data_type, cy_year, cy_month, cy_weeks[idx])
-        for idx in closed_positions
+        sales_week_qty(lookups, datest, data_type, cy_year, cy_month, week)
+        for week in closed_weeks
     )
-    closed_ly = sum(
-        sales_week_qty(lookups, datest, data_type, ly_year, ly_month, ly_weeks[idx])
-        for idx in closed_positions
-        if idx < len(ly_weeks)
-    )
-    open_ly = sum(
-        sales_week_qty(lookups, datest, data_type, ly_year, ly_month, ly_weeks[idx])
-        for idx in range(len(cy_weeks))
-        if idx not in closed_positions and idx < len(ly_weeks)
-    )
-    ratio = (closed_cy / closed_ly) if closed_ly else 1.0
-    projected_open = ratio * open_ly
-    projected_total = closed_cy + projected_open
-    weeks = month_info.get(target_yyyymm, {}).get("weeks") or len(cy_weeks)
+    projected_total = closed_cy / len(closed_weeks) * weeks
     return projected_total, projected_total / weeks if weeks else 0.0
 
 
@@ -486,9 +508,11 @@ def write_values_and_formulas(
         for key in YEAR_KEYS:
             fy = year_map[key]
             if key == "CY" and ym > target_yyyymm:
-                ws.cell(SALES_ROWS[key], col).value = None
-                ws.cell(WEEKLY_ROWS[key], col).value = None
-                ws.cell(MINIMO_ROWS[key], col).value = None
+                # Future rolling months can repeat Jan/Feb of the following YYYYMM.
+                # Keep the CY historical month populated so formulas can compare CY+1 vs CY.
+                ws.cell(SALES_ROWS[key], col).value = lookup_sales(lookups, datest, "Sales_hist", fy, month_num)
+                ws.cell(WEEKLY_ROWS[key], col).value = weekly_average(lookups, datest, "Sales_hist", fy, month_num, ym, month_info)
+                ws.cell(MINIMO_ROWS[key], col).value = lookup_sales(lookups, datest, "Sales_minimo", fy, month_num)
             elif key == "CY" and ym == target_yyyymm:
                 ly_same_month = int(f"{year_map['LY']}{target_month:02d}")
                 projected_sales, projected_weekly = current_month_projection(
@@ -518,70 +542,185 @@ def write_values_and_formulas(
     for col, ym in zip(MONTH_COLUMNS, months):
         letter = get_column_letter(col)
         ws.cell(15, col).value = f'=IFERROR(IF({letter}7/{letter}6-1=-1,"",{letter}7/{letter}6-1),"")'
-        if ym == target_yyyymm and col > MONTH_COLUMNS[0]:
-            previous_letter = get_column_letter(col - 1)
-            ws.cell(16, col).value = f'=IFERROR(IF({previous_letter}8/{previous_letter}7-1=-1,"",{previous_letter}8/{previous_letter}7-1),"")'
-        else:
-            ws.cell(16, col).value = f'=IFERROR(IF({letter}8/{letter}7-1=-1,"",{letter}8/{letter}7-1),"")'
-        ws.cell(30, col).value = f'=IFERROR({letter}25/{letter}5,"")'
-        ws.cell(31, col).value = f'=IFERROR({letter}26/{letter}6,"")'
-        ws.cell(32, col).value = f'=IFERROR({letter}27/{letter}7,"")'
-        ws.cell(33, col).value = f'=IFERROR({letter}28/{letter}8,"")'
+        ws.cell(16, col).value = f'=IFERROR(IF({letter}8/{letter}7-1=-1,"",{letter}8/{letter}7-1),"")'
+        ws.cell(32, col).value = f'=IFERROR({letter}27/{letter}5,"")'
+        ws.cell(33, col).value = f'=IFERROR({letter}28/{letter}6,"")'
+        ws.cell(34, col).value = f'=IFERROR({letter}29/{letter}7,"")'
+        ws.cell(35, col).value = f'=IFERROR({letter}30/{letter}8,"")'
 
     previous_month = shift_yyyymm(target_yyyymm, -1)
     target_col = MONTH_COLUMNS[months.index(target_yyyymm)]
     previous_col = MONTH_COLUMNS[months.index(previous_month)] if previous_month in months else None
+    sales_row_by_year = {year: SALES_ROWS[key] for key, year in year_map.items()}
 
     for col, ym in zip(MONTH_COLUMNS, months):
         letter = get_column_letter(col)
         prev = previous_values.get(ym, {})
         ws.cell(18, col).value = prev.get(21)
         ws.cell(19, col).value = prev.get(22)
-        ws.cell(40, col).value = prev.get(40)
+        ws.cell(45, col).value = prev.get(45)
         forecast_qty = float(lookups["forecast_month"].get((datest, ym), 0.0))
+        weeks_in_month = month_info.get(ym, {}).get("weeks") or len(month_info.get(ym, {}).get("weeks_list") or []) or 1
         if previous_col is not None and col < previous_col:
             ws.cell(21, col).value = None
             ws.cell(22, col).value = None
             ws.cell(23, col).value = None
-        elif previous_col is not None and col == previous_col:
+            ws.cell(24, col).value = prev.get(24)
+            ws.cell(25, col).value = None
+        elif previous_col is not None and col in [previous_col, target_col]:
             ws.cell(21, col).value = f'={letter}16'
             ws.cell(22, col).value = f'={letter}8'
-            ws.cell(23, col).value = f'=IFERROR({letter}22-{letter}19,"")'
-        elif ym == target_yyyymm:
-            ws.cell(21, col).value = '=IFERROR(SUM(F8:H8)/SUM(F7:H7)-1,"")'
-            ws.cell(22, col).value = f'=IFERROR({letter}7*(1+{letter}21),"")'
-            ws.cell(23, col).value = f'=IFERROR({letter}22-{letter}19,"")'
+            ws.cell(23, col).value = f'=IFERROR({letter}22/{weeks_in_month},"")'
+            ws.cell(24, col).value = f'=IFERROR({letter}19/{letter}8-1,"")'
+            ws.cell(25, col).value = None if col == previous_col else f'=IFERROR({letter}22-{letter}19,"")'
         else:
-            ws.cell(21, col).value = f'={get_column_letter(target_col)}21'
-            ws.cell(22, col).value = f'=IFERROR({letter}7*(1+{letter}21),"")'
-            ws.cell(23, col).value = f'=IFERROR({letter}22-{letter}19,"")'
+            denom_row = sales_row_by_year.get((ym // 100) - 1, SALES_ROWS["LY"])
+            ws.cell(21, col).value = f'=IFERROR(SUM({letter}22)/SUM({letter}{denom_row})-1,"")'
+            if col < MONTH_COLUMNS[-1]:
+                ws.cell(22, col).value = f'={letter}19'
+            else:
+                ws.cell(22, col).value = None
+            ws.cell(23, col).value = f'=IFERROR({letter}22/{weeks_in_month},"")'
+            ws.cell(24, col).value = None
+            ws.cell(25, col).value = f'=IFERROR({letter}22-{letter}19,"")'
 
         if previous_col is not None and col < previous_col:
-            ws.cell(35, col).value = None
-            ws.cell(36, col).value = None
             ws.cell(37, col).value = None
             ws.cell(38, col).value = None
+            ws.cell(40, col).value = None
+            ws.cell(41, col).value = None
+            ws.cell(42, col).value = prev.get(42)
+            ws.cell(43, col).value = None
         elif previous_col is not None and col in [previous_col, target_col]:
-            ws.cell(35, col).value = f'={letter}33'
-            ws.cell(36, col).value = f'={letter}28'
-            ws.cell(37, col).value = forecast_qty
-            ws.cell(38, col).value = f'=IFERROR({letter}36-{letter}37,"")'
+            ws.cell(37, col).value = f'=IFERROR({letter}38/{letter}19,"")'
+            ws.cell(38, col).value = forecast_qty
+            ws.cell(40, col).value = f'={letter}35'
+            ws.cell(41, col).value = f'={letter}30'
+            ws.cell(42, col).value = f'=IFERROR({letter}38/{letter}30-1,"")'
+            ws.cell(43, col).value = f'=IFERROR({letter}41-{letter}38,"")'
         else:
-            if target_col < col < MONTH_COLUMNS[-1]:
-                ws.cell(35, col).value = prev.get(35)
+            ws.cell(37, col).value = f'=IFERROR({letter}38/{letter}19,"")'
+            ws.cell(38, col).value = forecast_qty
+            if col < MONTH_COLUMNS[-1]:
+                ws.cell(40, col).value = f'={letter}37'
             else:
-                ws.cell(35, col).value = f'={letter}32'
-            ws.cell(36, col).value = f'=IFERROR({letter}22*(1+{letter}35),"")'
-            ws.cell(37, col).value = forecast_qty
-            ws.cell(38, col).value = f'=IFERROR({letter}36-{letter}37,"")'
+                ws.cell(40, col).value = None
+            ws.cell(41, col).value = f'=IFERROR({letter}22*{letter}40,"")'
+            ws.cell(42, col).value = None
+            ws.cell(43, col).value = f'=IFERROR({letter}41-{letter}38,"")'
 
-    for row in [15, 16, 18, 21, 30, 31, 32, 33, 35]:
+    for row in [15, 16, 18, 21, 24, 32, 33, 34, 35, 37, 40, 42]:
         for col in MONTH_COLUMNS:
             ws.cell(row, col).number_format = "0%"
-    for row in [5, 6, 7, 8, 10, 11, 12, 13, 19, 22, 23, 25, 26, 27, 28, 36, 37, 38]:
+    for row in [5, 6, 7, 8, 10, 11, 12, 13, 19, 22, 23, 25, 27, 28, 29, 30, 38, 41, 43]:
         for col in MONTH_COLUMNS:
             ws.cell(row, col).number_format = '#,##0'
 
+
+
+
+def clone_worksheet_between_workbooks(source_ws, target_wb, title: str):
+    ws = target_wb.create_sheet(title=title, index=0)
+    for row in source_ws.iter_rows():
+        for source_cell in row:
+            target_cell = ws.cell(source_cell.row, source_cell.column)
+            target_cell.value = source_cell.value
+            if source_cell.has_style:
+                target_cell._style = copy(source_cell._style)
+            target_cell.number_format = source_cell.number_format
+            target_cell.font = copy(source_cell.font)
+            target_cell.fill = copy(source_cell.fill)
+            target_cell.border = copy(source_cell.border)
+            target_cell.alignment = copy(source_cell.alignment)
+            target_cell.protection = copy(source_cell.protection)
+            if source_cell.comment:
+                target_cell.comment = copy(source_cell.comment)
+    for merged_range in source_ws.merged_cells.ranges:
+        ws.merge_cells(str(merged_range))
+    for idx, dim in source_ws.column_dimensions.items():
+        target_dim = ws.column_dimensions[idx]
+        target_dim.width = dim.width
+        target_dim.hidden = dim.hidden
+        target_dim.outlineLevel = dim.outlineLevel
+        target_dim.collapsed = dim.collapsed
+    for idx, dim in source_ws.row_dimensions.items():
+        target_dim = ws.row_dimensions[idx]
+        target_dim.height = dim.height
+        target_dim.hidden = dim.hidden
+        target_dim.outlineLevel = dim.outlineLevel
+        target_dim.collapsed = dim.collapsed
+    ws.sheet_view.showGridLines = source_ws.sheet_view.showGridLines
+    if source_ws.freeze_panes:
+        ws.freeze_panes = source_ws.freeze_panes
+    return ws
+
+
+def month_names_for_completion(target_yyyymm: int, month_info: dict[int, dict[str, Any]]) -> list[str]:
+    months = [shift_yyyymm(target_yyyymm, offset) for offset in (4, 5, 6)]
+    return [month_info.get(ym, {}).get("name_it") or f"M{ym % 100}" for ym in months]
+
+
+def is_completion_month_header(ws, row: int) -> bool:
+    values = [ws.cell(row, col).value for col in range(2, 5)]
+    non_empty = [str(value).strip() for value in values if value not in [None, ""]]
+    if len(non_empty) < 2:
+        return False
+    month_names = {
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    }
+    return all(value.casefold() in month_names for value in non_empty)
+
+
+def add_completion_sheet_from_previous(wb, prev_path: Path | None, target_yyyymm: int, month_info: dict[int, dict[str, Any]], logger: logging.Logger) -> None:
+    if prev_path is None:
+        logger.info("No previous completion sheet available")
+        return
+    prev_wb = load_workbook(prev_path)
+    source_ws = None
+    for sheet_name in prev_wb.sheetnames:
+        if sheet_name.casefold() == "completamento":
+            source_ws = prev_wb[sheet_name]
+            break
+    if source_ws is None:
+        prev_wb.close()
+        logger.info("Previous workbook has no completion sheet: %s", prev_path)
+        return
+
+    ws = clone_worksheet_between_workbooks(source_ws, wb, source_ws.title)
+    prev_wb.close()
+
+    ws.delete_cols(2, 1)
+    for row in range(1, ws.max_row + 1):
+        for col in (2, 3):
+            cell = ws.cell(row, col)
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                old_col = get_column_letter(col + 1)
+                new_col = get_column_letter(col)
+                cell.value = Translator(cell.value, origin=f"{old_col}{row}").translate_formula(f"{new_col}{row}")
+    ws.insert_cols(4, 1)
+    for row in range(1, ws.max_row + 1):
+        source = ws.cell(row, 3)
+        target = ws.cell(row, 4)
+        if source.has_style:
+            target._style = copy(source._style)
+        target.number_format = source.number_format
+        target.font = copy(source.font)
+        target.fill = copy(source.fill)
+        target.border = copy(source.border)
+        target.alignment = copy(source.alignment)
+        target.protection = copy(source.protection)
+        if isinstance(source.value, str) and source.value.startswith("="):
+            target.value = Translator(source.value, origin=f"C{row}").translate_formula(f"D{row}")
+        else:
+            target.value = None
+
+    month_names = month_names_for_completion(target_yyyymm, month_info)
+    header_rows = [row for row in range(1, ws.max_row + 1) if is_completion_month_header(ws, row)]
+    for row in header_rows:
+        for col, month_name in zip(range(2, 5), month_names):
+            ws.cell(row, col).value = month_name
+    logger.info("Completion sheet rolled from %s | header_rows=%s | months=%s", prev_path, header_rows, month_names)
 
 def copy_template_sheet(wb, template_ws, title: str):
     ws = wb.copy_worksheet(template_ws)
@@ -612,6 +751,8 @@ def build_workbook(cfg: dict, yyyymm: int, output_path: Path, dry_run: bool, log
         logger.info("Previous consensus found for last approval: %s", prev_path)
     else:
         logger.info("No previous consensus found for last approval")
+
+    add_completion_sheet_from_previous(wb, prev_path, yyyymm, month_info, logger)
 
     created = []
     for datest in datests:
