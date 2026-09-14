@@ -1,6 +1,6 @@
 # Pipeline GV - Overview
 
-Ultimo aggiornamento: 2026-07-07.
+Ultimo aggiornamento: 2026-09-14 (allineamento documentazione vs codice; le metriche dei run del 2026-07-01 restano come storico; punti critici in fondo, sezione `Punti aperti noti`).
 
 Questa pipeline gestisce il flusso GV per automatizzare i file consensus frames.
 E' separata dalla pipeline Retail ufficiale: ha cartelle, config, script, log e
@@ -58,25 +58,25 @@ serve, ma ogni dipendenza esterna deve essere dichiarata qui e nei config GV.
 - `01_Brands Defill.xlsx`
   - sheet: `DEFILL`
   - colonne rilevate: `DATEST`, `BRAND`
-  - regola v0: definisce il perimetro ufficiale datest/brand della pipeline GV.
+  - uso reale nel codice: lista di esclusione. Nel consensus vengono scartate le righe la cui coppia `Client Datest + Brand` (Brand da `Anagrafica_Base.parquet`, confronto case-insensitive) e' presente nel Defill. Non e' la whitelist dei datest.
 - `02_Consensus_frames_template.xlsx`
   - sheet: `Consensus Frames`
   - template base per generare un file consensus mensile con un tab per datest.
 
 ### Scarichi
 
-- `GV_Sales_update_Eliot storico.csv`
-  - separatore: `,`
+- storico sales: al 2026-09-14 i file sono in `01_Scarichi\storici sales\`: `GV_Sales_update_Eliot storico 2025-2026.csv` (separatore `,`) e `GV_Sales_update_Eliot storico 2024-2023.csv` (separatore `;`); lo script rileva il separatore automaticamente
   - colonne: `Client Datest`, `UPC`, `Fiscal Year`, `Fiscal Month`, `Fiscal Week`, `Hist Weekly Sales`, `Hist - Weekly Sales Act MS>0 (Total)`
-  - range rilevato: settimane `202501`-`202626`
+  - attenzione: `datasets.json` (`scarichi.sales_historical.path`) punta ancora a `01_Scarichi\GV_Sales_update_Eliot storico.csv`, che non esiste piu'. `update_sales_gv.py --source historical` quindi fallisce; per ricaricare lo storico usare `--source custom --source-path "<file storico>"`.
 - `GV_Sales_update_Eliot.csv`
   - separatore: `,`
   - stesse colonne dello storico sales
-  - range rilevato: settimane `202619`-`202626`
+  - range rilevato a luglio 2026: settimane `202619`-`202626` (lo scarico viene sostituito a ogni download)
 - `GV_Forecast_Eliot.csv`
   - separatore: `,`
   - colonne: `Client Datest`, `UPC`, `Fiscal Week`, `Forecast (no COV)`, `Forecast (with COV)`, `Forecast Approved (with COV)`
-  - range rilevato: settimane `202623`-`202730`
+  - range rilevato a luglio 2026: settimane `202623`-`202730`
+  - i valori `Forecast Approved (with COV)` sono decimali con punto (es. `3.43`): vengono arrotondati a interi e le righe con quantita' 0 vengono scartate
 
 ## Perimetro Datest
 
@@ -87,12 +87,7 @@ Gli scarichi contengono 12 datest:
 032100, 032150, 032300, 033100, 033150, 033300
 ```
 
-Il file manuale `01_Brands Defill.xlsx` contiene 9 datest:
-
-```text
-026000, 026150, 026300, 028150, 028200, 028300,
-032100, 032150, 032300
-```
+Il file manuale `01_Brands Defill.xlsx` al 2026-09-14 contiene 198 righe su tutti i 12 datest (inizialmente ne conteneva 9).
 
 Regola v0: gli script GV filtrano sui 12 datest degli scarichi sales/forecast
 salvati in `business_rules.allowed_gv_datests`. Il Defill non e' la whitelist datest.
@@ -114,34 +109,32 @@ I parquet GV sono stato operativo della pipeline GV. I CSV in `01_Scarichi`
 restano input sorgente.
 
 ### Consensus
-- Commenti: la riga `40` viene riportata dalla consensus precedente agganciando i valori allo stesso `YYYYMM`, non alla posizione rolling.
-- Separatore verticale continuo: current month giallo prevale su cambio anno doppio, che prevale su quarter nero; la regola vale anche sulle righe vuote.
-- Proiezione mese corrente: settimane chiuse CY / stesse settimane LY applicate alle settimane aperte LY; se non esiste base LY chiusa, la ratio resta neutra e le settimane aperte vengono valorizzate come LY.
 
 - File mensile: `{gv.consensus}\Consensus_Frames_GV_{yyyymm}.xlsx`
-- Un tab per ogni datest GV nel perimetro Defill.
+- Un tab per ognuno dei 12 datest di `business_rules.allowed_gv_datests` (non solo quelli del Defill), piu' un tab `completamento` ricavato dal consensus del mese precedente (vedi `Consensus Core GV`).
 - Layout derivato da `02_Consensus_frames_template.xlsx`.
+- Commenti: la riga `45` viene riportata dalla consensus precedente agganciando i valori allo stesso `YYYYMM`, non alla posizione rolling (con il vecchio layout la riga era la `42`).
+- Separatore verticale continuo: current month giallo prevale su cambio anno doppio, che prevale su quarter nero.
+- Proiezione mese corrente: vedi `Regola Sales CY Corrente e Futuro` in fondo.
 
-Output storici gia' presenti:
-
-- `Consensus_Frames_GV_202602.xlsx`
-- `Consensus_Frames_GV_202603.xlsx`
+Output presenti al 2026-09-14: `Consensus_Frames_GV_202606.xlsx`, `202607`, `202608` (ultima modifica 2026-09-09, senza log di generazione in quella data, quindi modificato fuori dallo script), `202609` (generato dallo script il 2026-08-24).
 
 ## Dipendenze Dalla Pipeline Ufficiale
 
-Nessuna dipendenza operativa attiva nella v0.
+Dipendenze operative attive (dichiarate in `paths.json` sezione `official_borrowed`):
 
-Possibili prestiti futuri da dichiarare prima dell'uso:
+- `\\luxnt\Retail\AAA_Retail\North America Demand&Distribution\00_Data\01_Manual_Input\Fiscal Calendar.xlsx`: mappatura settimana fiscale -> mese del forecast, numero settimane per mese, mese fiscale corrente di default;
+- `\\luxnt\Retail\AAA_Retail\North America Demand&Distribution\00_Data\02_Clean_Data\03_Anagrafica\Anagrafica_Base.parquet`: Brand e Product Type per UPC;
+- `\\luxnt\Retail\AAA_Retail\North America Demand&Distribution\00_Data\01_Manual_Input\brand_wearables.xlsx`: lista brand wearable da escludere (prima colonna del file);
+- `\\luxnt\Retail\AAA_Retail\zzzz_Coli\Script\03 - py\00 - utilities\samu.py`: invio mail, importato da `gv_samu.py`.
 
-- fiscal calendar ufficiale, per convertire settimane fiscali in mesi;
-- anagrafica ufficiale, se servira' arricchire UPC/brand;
-- eventuali dataset forecast/sales ufficiali solo per controlli, non come stato GV.
+Una modifica di questi file o del loro percorso nella pipeline Retail puo' rompere GV. Nota: `pipeline.json` sezione `borrowed_from_official_pipeline` riporta ancora Fiscal Calendar e Anagrafica come `declared_not_used_yet`, ma sono usati.
 
 ## Script Previsti
 
 - `gv_config.py`: carica config JSON GV, risolve path simbolici e centralizza regole condivise.
-- `update_sales_gv.py`: legge storico + update sales, filtra perimetro Defill e scrive parquet annuali GV.
-- `update_forecast_gv.py`: legge forecast Eliot, filtra perimetro Defill e scrive parquet forecast GV.
+- `update_sales_gv.py`: legge update o storico sales, filtra sui 12 datest GV e scrive parquet annuali GV (il Defill non viene applicato qui, solo nel consensus).
+- `update_forecast_gv.py`: legge forecast Eliot, filtra sui 12 datest GV e scrive parquet forecast GV (Defill non applicato qui).
 - `generate_consensus_frames_gv.py`: legge parquet GV + template e genera workbook mensile consensus frames GV.
 
 ## Regole Di Lavoro
@@ -273,6 +266,8 @@ Run reale ultimo:
 
 Cartella: `00_cose_pitonose\05_bat`
 
+Differenza di ambiente Python: `Run_GV_Menu.bat` usa un venv per utente in `%LOCALAPPDATA%\GV_Consensus_Pipeline\.venv` (creato al primo avvio e popolato da `02_config\requirements_gv.txt`: `pandas`, `openpyxl`, `pyarrow` senza versioni fissate); `Update_Forecast_GV.bat` e `Update_Sales_GV.bat` usano invece il Python globale `C:\Users\colifa\AppData\Local\Programs\Python\Python312\python.exe`.
+
 - `Update_Forecast_GV.bat`
   - lancia `03_script\update_forecast_gv.py`;
   - aggiorna `GV_Forecast.parquet` come foto latest forecast approved.
@@ -287,12 +282,12 @@ I `.bat` propagano l'exit code dello script Python. I log applicativi restano ge
 
 File legacy:
 
-- `00_cose_pitonose\05_bat\Run_GV_Pipeline.bat`
+- `00_cose_pitonose\05_bat\Run_GV_Pipeline.bat` (al 2026-09-14 contenuto identico a `Run_GV_Menu.bat`)
 
 File menu principale:
 
 - `00_cose_pitonose\05_bat\Run_GV_Menu.bat`
-- collegamento root `Crea consensus.lnk` punta a `Run_GV_Menu.bat`
+- collegamento root `GV_Run_script.lnk` punta a `Run_GV_Menu.bat`
 
 Menu disponibile:
 
@@ -359,8 +354,11 @@ Regole principali:
 
 - salva solo nella cartella GV `02_Consensus`;
 - legge il template `01_input\00_Manual_input\02_Consensus_frames_template.xlsx`;
-- ripete solo il foglio template `Consensus Frames`, una volta per datest;
-- non crea split, normalizzazioni o tab ausiliari;
+- ripete il foglio template `Consensus Frames`, una volta per ciascuno dei 12 datest GV;
+- non crea split o normalizzazioni; crea pero' un tab ausiliario `completamento`, se il consensus del mese precedente ne ha uno (vedi sotto);
+- sovrascrive il file del mese se esiste gia' (file temporaneo `.tmp` poi sostituzione), senza backup: rigenerare un mese gia' lavorato a mano cancella le modifiche manuali;
+- non invia mail S.A.M. (solo gli update sales/forecast la inviano);
+- opzioni CLI: `--yyyymm YYYYMM`, `--dry-run`;
 - ogni foglio contiene solo i dati del suo datest;
 - arricchisce `UPC` con `Brand` e `Product Type` da `Anagrafica_Base.parquet` ufficiale;
 - se una UPC non trova match anagrafica, viene segnalata nel log e in CSV diagnostico in `04_log`; in assenza di match non viene scartata automaticamente;
@@ -378,6 +376,14 @@ Dipendenze prese in prestito dalla pipeline ufficiale:
 - `Fiscal Calendar.xlsx`, per mappare settimane/mese e default del mese corrente;
 - `Anagrafica_Base.parquet`, per arricchire UPC con Brand/Product Type;
 - `brand_wearables.xlsx`, per escludere i brand wearable.
+
+Lettura del consensus precedente (`Consensus_Frames_GV_{yyyymm-1}.xlsx`, con passaggio d'anno corretto):
+
+- il file viene aperto con `openpyxl data_only=True`, quindi vengono letti i valori calcolati salvati da Excel, non le formule;
+- da ogni tab datest vengono ripresi, agganciati per `YYYYMM` (riga 3): riga 21 -> riga 18 (last consensus), riga 22 -> riga 19 (last approval), righe 24, 42 (per i mesi prima del mese precedente), riga 45 (commenti). Supporta anche il layout precedente con righe diverse;
+- un file generato dallo script e mai aperto e salvato in Excel non contiene valori calcolati: le righe 21, 22, 24, 42 risultano vuote e il consensus successivo avra' righe 18 e 19 vuote senza nessun errore. Verifica del 2026-09-14: `Consensus_Frames_GV_202609.xlsx` (generato dallo script il 2026-08-24) non ha valori calcolati nelle righe 21 e 22, mentre `202608` (salvato il 2026-09-09) li ha. Procedura operativa: aprire e salvare in Excel il consensus del mese prima di generare il successivo.
+
+Tab `completamento`: se il consensus precedente ha un tab chiamato `completamento` (maiuscole/minuscole ignorate), viene copiato nel nuovo file; poi viene eliminata la colonna B, le formule delle colonne B:C vengono traslate, viene inserita una nuova colonna D con stile e formule copiate dalla C (valori non formula lasciati vuoti), e le righe di intestazione con nomi mese vengono aggiornate ai mesi `yyyymm+4`, `+5`, `+6`.
 
 ## Storico Sales 2023-2024
 
@@ -428,28 +434,51 @@ Il consensus `202607` e' stato rigenerato dopo il caricamento storico:
 
 Per il consensus rolling 202607, con G=mese precedente, H=mese corrente, I:N=futuro:
 
+- righe 18 e 19 (tutte le colonne) = valori delle righe 21 e 22 del consensus precedente, agganciati per `YYYYMM`;
 - righe 21-23: B:F vuote;
 - G21/H21 = riga 16;
-- I21:N21 = `IFERROR(riga22/riga7-1,"")`;
+- I21:N21 = `IFERROR(SUM(riga22)/SUM(riga sales dell'anno precedente al mese della colonna)-1,"")`: per i mesi dell'anno target la riga di confronto e' la 7 (LY); per i mesi dell'anno successivo e' la 8 (CY);
 - G22/H22 = riga 8;
 - I22:M22 = riga 19, N22 vuota;
 - G23:N23 = riga 22 diviso numero settimane fiscali del mese della colonna;
-- G24/H24 = `IFERROR(riga19/riga8-1,"")`, I:N vuote;
+- B24:F24 = valore riga 24 del consensus precedente; G24/H24 = `IFERROR(riga19/riga8-1,"")`; I:N vuote;
 - riga 25 = delta vs last approval, con B:G vuote, H:N = `IFERROR(riga22-riga19,"")`;
-- riga 37 = `IFERROR(riga38/riga19,"")`;
-- riga 38 = forecast/last approval sales da minimo del mese corrispondente;
+- riga 37: B:F vuote, G:N = `IFERROR(riga38/riga19,"")`;
+- riga 38: B:F vuote, G:N = valore (non formula) del forecast approved GV del mese, da `GV_Forecast.parquet`, dopo i filtri accessori/wearable/Defill;
 - G40/H40 = riga 35, I40:M40 = riga 37, N40 vuota;
-- G41/H41 = riga 30, I41:N41 = `IFERROR(riga22*(1+riga40),"")`;
-- riga 42 = volume error sales da minimo, calcolata su G/H come `IFERROR(riga38/riga30-1,"")`;
-- riga 43 = delta vs last approval sales da minimo, `IFERROR(riga41-riga38,"")`;
+- G41/H41 = riga 30, I41:N41 = `IFERROR(riga22*riga40,"")` (la versione precedente di questo documento riportava `riga22*(1+riga40)`, che non corrisponde al codice attuale);
+- riga 42: B:F = valore riga 42 del consensus precedente; G/H = `IFERROR(riga38/riga30-1,"")`; I:N vuote;
+- riga 43 = delta vs last approval sales da minimo, `IFERROR(riga41-riga38,"")` (B:F vuote);
 - riga 45 = commenti, riportati dalla consensus precedente agganciando i valori allo stesso `YYYYMM`.
 
 ### Regola Sales CY Corrente e Futuro
 
-Nel consensus, per i mesi futuri rispetto al mese corrente consensus, le righe Sales CY e Weekly Sales CY restano vuote. Non vengono scritti zero perche' nel futuro non possono esserci vendite actual.
+Comportamento attuale del codice per i mesi futuri rispetto al mese target: le righe Sales CY (8), Weekly Sales CY (13) e Sales da minimo CY (30) vengono valorizzate con le sales dell'anno target per quel numero di mese. Per i mesi futuri dello stesso anno il valore scritto e' quindi `0`, non una cella vuota; per i mesi dell'anno successivo (es. gennaio/febbraio dell'anno dopo) viene scritto il valore dello stesso mese dell'anno target, cosi' le formule possono confrontare CY+1 con CY. La regola precedente di questo documento ("restano vuote, non vengono scritti zero") non corrisponde al codice.
 
-Per il mese corrente, Sales CY viene proiettato a fine mese con questa logica:
+Per il mese corrente, Sales CY e Sales da minimo CY vengono proiettati a fine mese con questa logica (`current_month_projection`):
 
-- se non ci sono settimane chiuse CY, il fallback e' il valore LY del mese intero;
-- se ci sono settimane chiuse CY, Sales CY proiettato = vendite settimane chiuse / numero settimane chiuse * numero settimane fiscali del mese;
-- Weekly Sales CY mese corrente = Sales CY proiettato / numero settimane fiscali del mese corrente.
+- sono considerate "settimane chiuse" le settimane fiscali del mese con vendite diverse da zero nei dati (non le settimane gia' passate secondo il calendario);
+- se non ci sono settimane con vendite CY, il fallback e' il valore LY dello stesso mese intero;
+- se ci sono, Sales CY proiettato = vendite di quelle settimane / numero di quelle settimane * numero settimane fiscali del mese;
+- Weekly Sales CY mese corrente = Sales CY proiettato / numero settimane fiscali del mese corrente;
+- non viene applicato alcun rapporto CY/LY sulle settimane aperte.
+
+## Stato al 2026-09-14
+
+- ultimo run update forecast, sales e consensus: 2026-08-24 (log in `04_log`); parquet sales 2026 e forecast aggiornati quel giorno;
+- scarichi presenti: `GV_Sales_update_Eliot.csv` del 2026-09-14, `GV_Forecast_Eliot.csv` del 2026-09-01, quindi piu' recenti dei parquet;
+- `pipeline.json` sezione `last_run` riporta ancora i run del 2026-07-01 e non viene aggiornato dagli script;
+- in `03_script` ci sono 8 copie `generate_consensus_frames_gv.py.bak_*` del 2-3 luglio (ignorate da git);
+- repository git con remote `https://github.com/colifabrizio1-work/GV_consensus_pipeline.git`; il `.gitignore` esclude scarichi, parquet, consensus, log, backup e collegamenti, quindi i dati non sono versionati.
+
+## Punti aperti noti
+
+Al 2026-09-14, nessuno corretto nel codice:
+
+- rigenerare un mese esistente sovrascrive il consensus senza backup;
+- il consensus successivo legge valori calcolati del precedente: se il file non e' stato salvato in Excel le righe last consensus/last approval restano vuote senza errore (oggi e' il caso di `202609`);
+- `Consensus_Frames_GV_202609.xlsx` e' stato generato il 2026-08-24, prima dell'ultima modifica di `202608` (2026-09-09): i valori ripresi dal mese precedente non includono quella modifica;
+- `--source historical` punta a un file inesistente;
+- `update_sales_gv.py`: l'argomento `--years` non e' usato; la conversione quantita' toglie tutti i punti prima di convertire (oggi le quantita' sales sono intere, un valore decimale con punto verrebbe moltiplicato);
+- `Update_*_GV.bat` e `Run_GV_Menu.bat` usano ambienti Python diversi; requirements senza versioni fissate;
+- layout del foglio basato su numeri di riga fissi.
