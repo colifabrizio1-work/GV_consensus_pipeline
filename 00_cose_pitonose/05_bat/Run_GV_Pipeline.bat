@@ -4,9 +4,9 @@ setlocal EnableExtensions
 set "BASE_DIR=\\luxnt\Retail\AAA_Retail\Demand Management GV\10. Automatizzazione file consensus"
 set "SCRIPT_DIR=%BASE_DIR%\00_cose_pitonose\03_script"
 set "CONFIG_DIR=%BASE_DIR%\00_cose_pitonose\02_config"
-set "VENV_DIR=%LOCALAPPDATA%\GV_Consensus_Pipeline\.venv"
-set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
-set "REQ_FILE=%CONFIG_DIR%\requirements_gv.txt"
+rem Ambiente Python condiviso con Retail Analysis Hub, WAFER e RPA SAP (un solo setup per utente).
+set "SHARED_ENV=\\luxnt\Retail\AAA_Retail\zzzz_Coli\Script\05 - bat\00 - shared env\shared_env.cmd"
+set "VENV_PY="
 set "FORECAST_SCRIPT=%SCRIPT_DIR%\update_forecast_gv.py"
 set "SALES_SCRIPT=%SCRIPT_DIR%\update_sales_gv.py"
 set "CONSENSUS_SCRIPT=%SCRIPT_DIR%\generate_consensus_frames_gv.py"
@@ -42,40 +42,10 @@ goto MENU
 
 :ENSURE_ENV
 echo.
-echo Verifica ambiente Python GV...
-if exist "%VENV_PY%" goto CHECK_PACKAGES
-
-echo Creo venv utente in: %VENV_DIR%
-py -3 -m venv "%VENV_DIR%" >nul 2>&1
-if errorlevel 1 (
-    python -m venv "%VENV_DIR%" >nul 2>&1
-)
-if not exist "%VENV_PY%" (
-    echo ERRORE: Python non trovato o creazione venv fallita.
-    echo Installare Python 3 oppure verificare il path con questi comandi PowerShell:
-    echo   py -0p
-    echo   where.exe python
-    exit /b 1
-)
-
-:CHECK_PACKAGES
-"%VENV_PY%" -c "import pandas, openpyxl, pyarrow" >nul 2>&1
-if not errorlevel 1 exit /b 0
-
-echo Installo/aggiorno pacchetti GV da requirements...
-"%VENV_PY%" -m pip install --upgrade pip
+echo Verifica ambiente Python condiviso...
+call "%SHARED_ENV%"
 if errorlevel 1 exit /b 1
-"%VENV_PY%" -m pip install -r "%REQ_FILE%"
-if errorlevel 1 (
-    echo ERRORE: installazione pacchetti fallita.
-    echo Verificare connessione/pip corporate e riprovare.
-    exit /b 1
-)
-"%VENV_PY%" -c "import pandas, openpyxl, pyarrow" >nul 2>&1
-if errorlevel 1 (
-    echo ERRORE: pacchetti Python ancora non disponibili dopo installazione.
-    exit /b 1
-)
+set "VENV_PY=%SHARED_PY%"
 exit /b 0
 
 

@@ -266,7 +266,7 @@ Run reale ultimo:
 
 Cartella: `00_cose_pitonose\05_bat`
 
-Differenza di ambiente Python: `Run_GV_Menu.bat` usa un venv per utente in `%LOCALAPPDATA%\GV_Consensus_Pipeline\.venv` (creato al primo avvio e popolato da `02_config\requirements_gv.txt`: `pandas`, `openpyxl`, `pyarrow` senza versioni fissate); `Update_Forecast_GV.bat` e `Update_Sales_GV.bat` usano invece il Python globale `C:\Users\colifa\AppData\Local\Programs\Python\Python312\python.exe`.
+Ambiente Python: dal 2026-09-15 tutti i `.bat` (`Run_GV_Menu.bat`, `Run_GV_Pipeline.bat`, `Update_Forecast_GV.bat`, `Update_Sales_GV.bat`) usano l'ambiente Python condiviso con Retail Analysis Hub, WAFER e RPA SAP, `%LOCALAPPDATA%\RetailPython\venv-py312`, preparato da `\\luxnt\Retail\AAA_Retail\zzzz_Coli\Script\05 - bat\00 - shared env\shared_env.cmd` con le versioni fissate in `Script\01 - config\requirements-shared-env.txt` (nuove dipendenze GV vanno aggiunte li'; `02_config\requirements_gv.txt` e il vecchio venv `%LOCALAPPDATA%\GV_Consensus_Pipeline\.venv` non sono piu' usati; `requirements_gv.txt` e' stato rimosso).
 
 - `Update_Forecast_GV.bat`
   - lancia `03_script\update_forecast_gv.py`;
