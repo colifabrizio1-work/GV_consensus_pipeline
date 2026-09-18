@@ -1,6 +1,6 @@
 # Pipeline GV - Overview
 
-Ultimo aggiornamento: 2026-09-14 (allineamento documentazione vs codice; le metriche dei run del 2026-07-01 restano come storico; punti critici in fondo, sezione `Punti aperti noti`).
+Ultimo aggiornamento: 2026-09-17 (split datest UK e fix finestra settimane sales; vedi `Split Datest UK 2026-09` e `Fix Finestra Settimane Sales 2026-09-17`. Le metriche dei run del 2026-07-01 restano come storico; punti critici in fondo, sezione `Punti aperti noti`).
 
 Questa pipeline gestisce il flusso GV per automatizzare i file consensus frames.
 E' separata dalla pipeline Retail ufficiale: ha cartelle, config, script, log e
@@ -80,17 +80,46 @@ serve, ma ogni dipendenza esterna deve essere dichiarata qui e nei config GV.
 
 ## Perimetro Datest
 
-Gli scarichi contengono 12 datest:
+Dal 2026-09-17 il perimetro GV e' di 15 datest (`business_rules.allowed_gv_datests`):
 
 ```text
-026000, 026150, 026300, 028150, 028200, 028300,
-032100, 032150, 032300, 033100, 033150, 033300
+026000, 026150, 026300,          GV SPAIN      EL / RX / EB
+027150, 027300, 028000,          GV UK         RX / EB / EL+3P
+028150, 028200, 028300,          GV NORDICS    RX / EL / EB
+032100, 032150, 032300,          GV DE&AT      EL / RX / EB
+033100, 033150, 033300           GV FRANCE     EL / RX / EB
 ```
 
-Il file manuale `01_Brands Defill.xlsx` al 2026-09-14 contiene 198 righe su tutti i 12 datest (inizialmente ne conteneva 9).
+La descrizione per datest e' salvata anche in `datasets.json`, chiave `business_rules.datest_map`.
 
-Regola v0: gli script GV filtrano sui 12 datest degli scarichi sales/forecast
-salvati in `business_rules.allowed_gv_datests`. Il Defill non e' la whitelist datest.
+Il file manuale `01_Brands Defill.xlsx` al 2026-09-17 contiene 198 righe sui 12 datest
+storici; per i 3 datest UK non ci sono ancora righe Defill, quindi nessun brand UK viene escluso.
+
+Regola v0: gli script GV filtrano sui datest di `business_rules.allowed_gv_datests`.
+Il Defill non e' la whitelist datest.
+
+### Split Datest UK 2026-09
+
+Prima UK era il singolo datest `028000`, mai incluso negli scarichi GV. Ora e' splittato in tre:
+
+| Datest | Descrizione |
+| --- | --- |
+| `028000` | GV UK EL+3P |
+| `027300` | GV UK EB |
+| `027150` | GV UK RX |
+
+Fonte del mapping: `\\luxnt\Retail\AAA_Retail\04_Forecast Wearables\System\Datest.xlsx`.
+
+Stato scarichi al 2026-09-17 (verificato sui file scaricati quel giorno):
+
+- `GV_Forecast_Eliot.csv`: contiene `027150` e `027300`, **non** contiene `028000`;
+- `GV_Sales_update_Eliot.csv`: **non** contiene nessuno dei tre datest UK;
+- gli storici sales 2023-2026 non contengono nessun datest UK, quindi per UK non esiste storico
+  e le righe LY/LLY/LLLY del consensus restano a zero finche' non viene caricato uno storico dedicato.
+
+Azione aperta lato scarichi BOXI: estendere l'estrazione sales ai datest `027150`, `027300`, `028000`
+e l'estrazione forecast al datest `028000`. Fino ad allora i tab UK del consensus vengono creati ma
+restano vuoti (o con il solo forecast per `027150` e `027300`).
 
 ## Output Attesi
 
@@ -217,13 +246,48 @@ Comando default:
 & "C:\Users\colifa\AppData\Local\Programs\Python\Python312\python.exe" -u "\\luxnt\Retail\AAA_Retail\Demand Management GV\10. Automatizzazione file consensus\00_cose_pitonose\03_script\update_sales_gv.py"
 ```
 
-Regola default:
+Regola default (dal 2026-09-17):
 
 - legge `01_input\01_Scarichi\GV_Sales_update_Eliot.csv`;
-- identifica le ultime 5 `Fiscal Week` presenti nello scarico update dopo filtro sui 12 datest GV;
+- prende **tutte** le `Fiscal Week` presenti nello scarico update dopo filtro sui datest GV;
 - rimuove quelle settimane in toto dai parquet annuali coinvolti per `Sales_hist` e `Sales_minimo`;
 - appende le nuove righe dello scarico update per quelle settimane;
-- questo gestisce anche UPC/datest comparsi o scomparsi, perche' lo scarico update possiede interamente il contenuto delle settimane sostituite.
+- questo gestisce anche UPC/datest comparsi o scomparsi, perche' lo scarico update possiede interamente il contenuto delle settimane sostituite;
+- `--latest-weeks N` con `N > 0` limita di nuovo la finestra alle ultime N settimane; il default e' `0`, cioe' tutte le settimane dello scarico.
+
+### Fix Finestra Settimane Sales 2026-09-17
+
+Problema trovato: fino al 2026-09-16 l'updater sostituiva solo le ultime 5 settimane dello scarico,
+mentre lo scarico ne contiene 19 e i run sono sporadici (01/07, 24/08, 14/09). Ogni settimana caduta
+fuori dalla finestra tra due run non veniva mai caricata e le settimane rettificate a posteriori
+restavano ferme al valore vecchio.
+
+Effetto misurato sul parquet `GV_Sales_2026.parquet`:
+
+- settimana `202629` completamente assente (nessuna riga);
+- mese fiscale `202607` a `496.649` pezzi invece di `661.022`, cioe' `-164.373` pezzi, `-24,9%`;
+- scostamenti minori su `202625`, `202626`, `202627`, `202628`, `202631`, `202632` per rettifiche non riprese.
+
+Correzione: `read_latest_weeks` restituisce tutte le settimane dello scarico quando `--latest-weeks <= 0`,
+che e' il nuovo default. Rilanciato l'update il 2026-09-17: 19 settimane sostituite (`202619`-`202637`),
+nessuna settimana mancante tra `202601` e `202637`.
+
+Sales_hist per mese fiscale dopo il fix:
+
+| Mese | Qty | LY | YoY |
+| --- | ---: | ---: | ---: |
+| 202601 | 591.390 | 592.869 | -0,2% |
+| 202602 | 614.157 | 596.937 | +2,9% |
+| 202603 | 860.776 | 826.360 | +4,2% |
+| 202604 | 666.773 | 652.099 | +2,3% |
+| 202605 | 652.097 | 658.568 | -1,0% |
+| 202606 | 803.130 | 801.650 | +0,2% |
+| 202607 | 661.022 | 686.311 | -3,7% |
+| 202608 | 632.493 | 634.343 | -0,3% |
+| 202609 | 478.390 | 840.082 | mese in corso, 3 settimane su 5 |
+
+Backup dei parquet pre-fix: `GV_Sales_2026.parquet.bak_20260917_145945` e
+`GV_Forecast.parquet.bak_20260917_145945` nelle rispettive cartelle.
 
 Run reale ultimo:
 
@@ -463,6 +527,15 @@ Per il mese corrente, Sales CY e Sales da minimo CY vengono proiettati a fine me
 - Weekly Sales CY mese corrente = Sales CY proiettato / numero settimane fiscali del mese corrente;
 - non viene applicato alcun rapporto CY/LY sulle settimane aperte.
 
+## Stato al 2026-09-17
+
+- perimetro datest portato a 15 con i tre datest UK (`027150`, `027300`, `028000`) in `datasets.json` e `pipeline.json`;
+- `update_sales_gv.py`: default cambiato da ultime 5 settimane a tutte le settimane dello scarico;
+- rilanciati update sales e update forecast sugli scarichi del 2026-09-17 (`--no-mail`, nessuna S.A.M. inviata):
+  - `GV_Sales_2026.parquet`: 1.168.127 righe, Qty totale 10.689.453, settimane `202601`-`202637` senza buchi;
+  - `GV_Forecast.parquet`: 825.239 righe, Qty totale 8.056.585, settimane `202627`-`202738`, 14 datest (mancante solo `028000`, assente nello scarico);
+- consensus **non** rigenerato: il generatore sovrascrive senza backup e `202609` contiene lavoro manuale.
+
 ## Stato al 2026-09-14
 
 - ultimo run update forecast, sales e consensus: 2026-08-24 (log in `04_log`); parquet sales 2026 e forecast aggiornati quel giorno;
@@ -479,6 +552,7 @@ Al 2026-09-14, nessuno corretto nel codice:
 - il consensus successivo legge valori calcolati del precedente: se il file non e' stato salvato in Excel le righe last consensus/last approval restano vuote senza errore (oggi e' il caso di `202609`);
 - `Consensus_Frames_GV_202609.xlsx` e' stato generato il 2026-08-24, prima dell'ultima modifica di `202608` (2026-09-09): i valori ripresi dal mese precedente non includono quella modifica;
 - `--source historical` punta a un file inesistente;
-- `update_sales_gv.py`: l'argomento `--years` non e' usato; la conversione quantita' toglie tutti i punti prima di convertire (oggi le quantita' sales sono intere, un valore decimale con punto verrebbe moltiplicato);
+- sales e forecast UK: gli scarichi BOXI non coprono ancora tutti e tre i datest (vedi `Split Datest UK 2026-09`);
+- `update_sales_gv.py`: l'argomento `--years` non e' usato; la conversione quantita' toglie tutti i punti prima di convertire (verificato il 2026-09-17: nello scarico corrente le quantita' sono intere senza punti ne' virgole, quindi oggi non c'e' impatto, ma un valore decimale con punto verrebbe moltiplicato);
 - `Update_*_GV.bat` e `Run_GV_Menu.bat` usano ambienti Python diversi; requirements senza versioni fissate;
 - layout del foglio basato su numeri di riga fissi.

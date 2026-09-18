@@ -18,7 +18,7 @@
         "{parquet.sales_annual_pattern}",
         "{gv.log}\\update_sales_gv_{timestamp}.log"
       ],
-      "status": "active_incremental_latest_5_weeks",
+      "status": "active_incremental_all_weeks_in_scarico",
       "last_run": {
         "date": "2026-07-01",
         "source": "update",
@@ -37,8 +37,9 @@
       "default_command": "python update_sales_gv.py",
       "notes": [
         "Default run reads GV_Sales_update_Eliot.csv.",
-        "It detects the latest 5 Fiscal Week values in the update source.",
+        "Since 2026-09-17 it takes every Fiscal Week present in the update source (--latest-weeks 0); pass a positive --latest-weeks only to limit the window on purpose.",
         "For each touched annual parquet, it removes those Fiscal Week values in toto for Sales_hist/Sales_minimo and appends the new rows.",
+        "The old 5-week window left holes when two runs were more than 5 weeks apart: week 202629 was never loaded and fiscal month 202607 was understated by about 164k pieces.",
         "This handles UPC/datest appearances and disappearances because the update source fully owns the replaced weeks.",
         "Use --source historical only for a full rebuild from GV_Sales_update_Eliot storico.csv.",
         "Sends S.A.M. status email to fabrizio.coli@luxottica.com by default; use --no-mail to disable."
@@ -162,6 +163,9 @@
       "026000",
       "026150",
       "026300",
+      "027150",
+      "027300",
+      "028000",
       "028150",
       "028200",
       "028300",
@@ -172,7 +176,31 @@
       "033150",
       "033300"
     ],
-    "note": "Defill is not the GV datest whitelist; it is manual brand scope/enrichment. GV datests come from sales and forecast scarichi."
+    "note": "Defill is not the GV datest whitelist; it is manual brand scope/enrichment. GV datests come from sales and forecast scarichi.",
+    "blank_fiscal_week_20260917": {
+      "what": "GV_Forecast_Eliot.csv carries 36250 rows (one per Client Datest + UPC, all 15 datests) where the Fiscal Week field is literally empty, worth 139665 units of Forecast Approved.",
+      "not_a_parsing_bug": "Verified with the stdlib csv module: 2249575 data rows, every one with exactly 6 fields, no misaligned rows and no newlines inside quoted fields.",
+      "not_a_total": "Each datest+UPC pair appears exactly once among the blank rows and its value is about one week, not the sum of the weekly rows.",
+      "diagnosis": "One extra week per UPC at the end of the horizon: the UPCs involved already carry the full 65/69-week range, and the blank value is close to the last week's value (median ratio 0.85 against the last week, 0.22 against the first). It is week 202744, emitted by BOXI without its label although Fiscal Calendar.xlsx does define it.",
+      "handling": "Dropped at ingestion like any row without a week (same rule as sales_invalid_upc_rule). Harmless today: 202744 falls outside the -6/+6 fiscal month window of the consensus. Fix the extraction horizon to recover it."
+    },
+    "pandas3_str_na_20260917": "From pandas 3 astype(str) leaves missing values as NA instead of writing them 'nan', so the ~isin(['','nan','none','nat']) guards stopped dropping them and rows without a Fiscal Week would have reached the parquet. The shared env runs pandas 3.0.3, so update_sales_gv.py and update_forecast_gv.py now fillna('') right after astype(str).",
+    "uk_split_2026_09": {
+      "before": "UK was a single datest 028000, never included in the GV scarichi.",
+      "after": {
+        "028000": "GV UK EL (EL+3P)",
+        "027300": "GV UK EB",
+        "027150": "GV UK RX"
+      },
+      "scarichi_status_20260917_1720": {
+        "GV_Forecast_Eliot.csv": "all 15 datests including 028000 (146297 rows), weeks 202627-202743",
+        "GV_Sales_update_Eliot.csv": "all 15 datests including 028000, but only 7 weeks (202631-202637)",
+        "storici sales\\GV_Sales_update_Eliot storico UK 2023-2026.csv": "UK-only extraction, 027150/027300/028000, weeks 202301-202637 complete with no gaps. Backfill source."
+      },
+      "uk_history_gap": "The three UK datests never appeared in the other scarichi (neither the 2023-2024 nor the 2025-2026 storico), so the annual parquet held no UK at all. Closed by backfill_sales_gv.py from the UK-only extraction.",
+      "done_20260917": "Run on the VM in this order: backfill_sales_gv.py, update_sales_gv.py, update_forecast_gv.py. Result verified: 2024/2025/2026 hold all 15 datests with no week gaps and no null weeks; 2023 holds 12 because France only starts in 2024. UK rows now 134773/48122/119562 (2023), 155683/49950/121827 (2024), 171240/47646/133454 (2025), 117481/28721/89049 (2026) for 027150/027300/028000. Forecast parquet: 891204 rows, 028000 present with 65965 rows.",
+      "backfill_is_repeatable": "Re-running backfill_sales_gv.py is idempotent and only touches the datests and weeks present in its CSV. Use it again for any datest that enters scope after the annual parquet already exists."
+    }
   },
   "mail": {
     "provider": "S.A.M.",

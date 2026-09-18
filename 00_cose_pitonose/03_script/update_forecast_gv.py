@@ -66,9 +66,13 @@ def normalize_chunk(
 
     out = chunk[KEY_COLUMNS].copy()
     for col in KEY_COLUMNS:
-        out[col] = out[col].astype(str).str.strip()
+        # fillna dopo astype(str): da pandas 3 astype(str) lascia i mancanti come NA
+        # invece di scriverli "nan", quindi senza questo i filtri qui sotto non li
+        # intercettano piu' e le righe senza settimana finiscono a parquet.
+        out[col] = out[col].astype(str).fillna("").str.strip()
     out["Client Datest"] = out["Client Datest"].str.zfill(6)
     out = out[out["Client Datest"].isin(datest_scope)]
+    out = out[~out["UPC"].str.lower().isin(["", "nan", "none", "nat"])]
     out = out[~out["Fiscal Week"].str.lower().isin(["", "nan", "none", "nat"])]
     if out.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)

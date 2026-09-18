@@ -17,6 +17,7 @@ KEY_COLUMNS = ["Client Datest", "UPC", "Fiscal Year", "Fiscal Month", "Fiscal We
 HIST_COLUMN = "Hist Weekly Sales"
 MINIMO_COLUMN_CANDIDATES = [
     "Hist - Weekly Sales Act MS>0 (Total)",
+    "Hist – Weekly Sales Act MS>0 (Total)",  # trattino lungo: e' quello che usa BOXI
     "Hist ? Weekly Sales Act MS>0 (Total)",
 ]
 SALES_DATA_TYPES = ["Sales_hist", "Sales_minimo"]
@@ -99,11 +100,16 @@ def normalize_chunk(chunk: pd.DataFrame, datest_scope: set[str], allowed_weeks: 
 
     base = chunk.copy()
     for col in KEY_COLUMNS:
-        base[col] = base[col].astype(str).str.strip()
+        # fillna dopo astype(str): da pandas 3 astype(str) lascia i mancanti come NA
+        # invece di scriverli "nan", quindi senza questo i filtri qui sotto non li
+        # intercettano piu' e le righe senza settimana finiscono a parquet.
+        base[col] = base[col].astype(str).fillna("").str.strip()
     base["Client Datest"] = base["Client Datest"].str.zfill(6)
     base = base[base["Client Datest"].isin(datest_scope)]
     base = base[~base["UPC"].str.lower().isin(["", "nan", "none", "nat"])]
     base = base[~base["Fiscal Week"].str.lower().isin(["", "nan", "none", "nat"])]
+    # Un Fiscal Year vuoto creerebbe un parquet annuale spazzatura (GV_Sales_.parquet).
+    base = base[~base["Fiscal Year"].str.lower().isin(["", "nan", "none", "nat"])]
     if allowed_weeks is not None:
         base = base[base["Fiscal Week"].isin(allowed_weeks)]
     if base.empty:
@@ -131,8 +137,10 @@ def atomic_write_parquet(df: pd.DataFrame, output_path: Path) -> None:
     os.replace(tmp_path, output_path)
 
 
-def read_latest_weeks(source_path: str, cfg: dict, datest_scope: set[str], n_weeks: int, separator: str) -> list[str]:
+def read_latest_weeks(source_path: str, cfg: dict, datest_scope: set[str], n_weeks: int, separator: str) -> tuple[list[str], set[str]]:
+    """Settimane da sostituire e datest effettivamente presenti nello scarico."""
     weeks: set[str] = set()
+    datests: set[str] = set()
     for chunk in pd.read_csv(
         source_path,
         sep=separator,
@@ -141,12 +149,19 @@ def read_latest_weeks(source_path: str, cfg: dict, datest_scope: set[str], n_wee
         usecols=["Client Datest", "Fiscal Week"],
         chunksize=250_000,
     ):
-        chunk["Client Datest"] = chunk["Client Datest"].astype(str).str.strip().str.zfill(6)
-        chunk["Fiscal Week"] = chunk["Fiscal Week"].astype(str).str.strip()
+        chunk["Client Datest"] = chunk["Client Datest"].astype(str).fillna("").str.strip().str.zfill(6)
+        chunk["Fiscal Week"] = chunk["Fiscal Week"].astype(str).fillna("").str.strip()
         chunk = chunk[chunk["Client Datest"].isin(datest_scope)]
         chunk = chunk[~chunk["Fiscal Week"].str.lower().isin(["", "nan", "none", "nat"])]
         weeks.update(chunk["Fiscal Week"].unique().tolist())
-    return sorted(weeks)[-n_weeks:]
+        datests.update(chunk["Client Datest"].unique().tolist())
+    ordered = sorted(weeks)
+    # n_weeks <= 0 significa: sostituisci tutte le settimane presenti nello scarico.
+    # Limitare la finestra alle ultime N settimane lascia buchi quando due run
+    # distano piu' di N settimane (caso reale: settimana 202629 mai caricata).
+    if n_weeks and n_weeks > 0:
+        return ordered[-n_weeks:], datests
+    return ordered, datests
 
 
 def collect_normalized_rows(
@@ -215,12 +230,22 @@ def write_incremental_update(source_path: str, cfg: dict, logger: logging.Logger
     datest_scope = read_datest_scope(cfg)
     logger.info("Datest scope from config/scarichi: %s", ", ".join(sorted(datest_scope)))
     sep = separator or cfg["business_rules"].get("csv_separator", ",")
-    latest_weeks = read_latest_weeks(source_path, cfg, datest_scope, n_weeks, sep)
+    latest_weeks, source_datests = read_latest_weeks(source_path, cfg, datest_scope, n_weeks, sep)
     if not latest_weeks:
         raise ValueError("No Fiscal Week found in update source after datest filtering.")
     latest_week_set = set(latest_weeks)
     logger.info("Update source: %s", source_path)
     logger.info("Weeks replaced in toto: %s", ", ".join(latest_weeks))
+    logger.info("Datest present in the update source: %s", ", ".join(sorted(source_datests)))
+    missing_datests = sorted(datest_scope - source_datests)
+    if missing_datests:
+        # Lo scarico BOXI puo' non coprire ancora un datest entrato da poco in scope
+        # (caso reale: 028000 dopo lo split UK). Le loro righe gia' a parquet vengono
+        # conservate invece di essere cancellate insieme alle settimane sostituite.
+        logger.warning(
+            "Datest in scope but absent from the update source, left untouched in the parquet: %s",
+            ", ".join(missing_datests),
+        )
 
     by_year, total_source_rows, total_output_rows = collect_normalized_rows(
         source_path, cfg, datest_scope, logger, chunksize, allowed_weeks=latest_week_set, separator=sep
@@ -238,7 +263,12 @@ def write_incremental_update(source_path: str, cfg: dict, logger: logging.Logger
         if output_path.exists():
             old_df = pd.read_parquet(output_path)
             old_rows = len(old_df)
-            remove_mask = old_df["Fiscal Week"].astype(str).isin(latest_week_set) & old_df["data_type"].isin(SALES_DATA_TYPES)
+            # Solo i datest presenti nello scarico: quelli assenti tengono le loro righe.
+            remove_mask = (
+                old_df["Fiscal Week"].astype(str).isin(latest_week_set)
+                & old_df["Client Datest"].astype(str).str.zfill(6).isin(source_datests)
+                & old_df["data_type"].isin(SALES_DATA_TYPES)
+            )
             removed_rows = int(remove_mask.sum())
             kept_df = old_df.loc[~remove_mask, OUTPUT_COLUMNS].copy()
         else:
@@ -275,7 +305,12 @@ def main() -> int:
     parser.add_argument("--source", choices=["update", "historical", "custom"], default="update")
     parser.add_argument("--source-path", help="CSV path to use with --source custom.")
     parser.add_argument("--years", nargs="*", help="Optional fiscal years to keep, mostly useful with --source custom.")
-    parser.add_argument("--latest-weeks", type=int, default=5, help="Number of latest fiscal weeks to replace for --source update.")
+    parser.add_argument(
+        "--latest-weeks",
+        type=int,
+        default=0,
+        help="Number of latest fiscal weeks to replace for --source update. 0 (default) replaces every fiscal week present in the update scarico.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs without writing parquet.")
     parser.add_argument("--no-mail", action="store_true", help="Do not send S.A.M. status email.")
     parser.add_argument("--chunksize", type=int, default=250_000)
@@ -308,7 +343,11 @@ def main() -> int:
             mode_line = "Modalita: rebuild da CSV custom"
         else:
             written = write_incremental_update(source_path, cfg, logger, args.dry_run, args.chunksize, args.latest_weeks, separator=separator)
-            mode_line = f"Modalita: update ultime {args.latest_weeks} settimane"
+            mode_line = (
+                "Modalita: update di tutte le settimane presenti nello scarico"
+                if args.latest_weeks <= 0
+                else f"Modalita: update ultime {args.latest_weeks} settimane"
+            )
         logger.info("Completed GV sales update")
         send_update_status(
             pipeline_name="Sales",

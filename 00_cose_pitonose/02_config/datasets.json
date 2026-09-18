@@ -8,6 +8,9 @@
       "026000",
       "026150",
       "026300",
+      "027150",
+      "027300",
+      "028000",
       "028150",
       "028200",
       "028300",
@@ -18,8 +21,25 @@
       "033150",
       "033300"
     ],
-    "sales_update_latest_weeks": 5,
-    "sales_update_replace_scope": "Replace the selected Fiscal Week values in toto in the annual parquet before appending the new update rows.",
+    "sales_update_latest_weeks": 0,
+    "sales_update_replace_scope": "Replace in toto every Fiscal Week present in the update scarico (latest_weeks = 0 means all weeks of the file), then append the new update rows. Limiting the window to the last N weeks leaves holes when two runs are more than N weeks apart.",
+    "datest_map": {
+      "026000": "GV SPAIN EL",
+      "026150": "GV SPAIN RX",
+      "026300": "GV SPAIN EB",
+      "027150": "GV UK RX",
+      "027300": "GV UK EB",
+      "028000": "GV UK EL (EL+3P)",
+      "028150": "GV NORDICS RX",
+      "028200": "GV NORDICS EL",
+      "028300": "GV NORDICS EB",
+      "032100": "GV DE&AT EL",
+      "032150": "GV DE&AT RX",
+      "032300": "GV DE&AT EB",
+      "033100": "GV FRANCE EL",
+      "033150": "GV FRANCE RX",
+      "033300": "GV FRANCE EB"
+    },
     "forecast_storage_mode": "latest_only_overwrite",
     "consensus_month_window": "13 fiscal months from target YYYYMM -6 to +6, written in columns B:N.",
     "defill_usage": "Exclude rows where Client Datest + UPC Brand match DATEST + BRAND in 01_Brands Defill.xlsx. Defill is not the datest whitelist.",
@@ -73,6 +93,31 @@
         "Forecast (no COV)",
         "Forecast (with COV)",
         "Forecast Approved (with COV)"
+      ]
+    },
+    "sales_historical_uk": {
+      "path": "{gv.scarichi}\\storici sales\\GV_Sales_update_Eliot storico UK 2023-2026.csv",
+      "separator": ",",
+      "datests": [
+        "027150",
+        "027300",
+        "028000"
+      ],
+      "years": [
+        2023,
+        2024,
+        2025,
+        2026
+      ],
+      "usage": "Backfill-only source for the UK split of 2026-09: the three UK datests never appeared in the other scarichi. Consumed by backfill_sales_gv.py, NEVER by update_sales_gv.py --source custom (that one would rewrite each annual parquet with the UK datests only).",
+      "columns": [
+        "Client Datest",
+        "UPC",
+        "Fiscal Year",
+        "Fiscal Month",
+        "Fiscal Week",
+        "Hist Weekly Sales",
+        "Hist - Weekly Sales Act MS>0 (Total)"
       ]
     },
     "sales_historical_2024_2023": {
